@@ -1,0 +1,72 @@
+version: '3'
+services:
+
+  traefik:
+    image: traefik:v2.0
+    restart: unless-stopped
+    command: 
+      - --api.insecure=true
+      - --providers.docker
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --log.level=INFO
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  loomio-app:
+    restart: unless-stopped
+    image: loomio/loomio:stable
+    expose:
+      - 3000
+    depends_on:
+      - loomio-db
+      - loomio-redis
+    environment:
+      - DATABASE_URL=postgresql://postgres:${LOOMIO_DB_PASS}@loomio-db/loomio_production
+      - REDIS_URL=redis://loomio-redis:6379
+      - CANONICAL_HOST=loomio.${TOP_DOMAIN}:80
+      - DISABLE_USAGE_REPORTING=1
+      - SECRET_COOKIE_TOKEN=foobar
+    volumes:
+      - ./data/loomio/app/client:/loomio/public/client
+      - ./data/loomio/app/uploads:/loomio/public/system
+      - ./data/loomio/app/files:/loomio/public/files
+      - ./data/loomio/app/plugins:/loomio/plugins/docker
+      - ./data/loomio/app/import:/import
+      - ./data/loomio/app/storage:/loomio/storage
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.loomio.rule=Host(`app.${TOP_DOMAIN}`)"
+      - "traefik.http.routers.loomio.entrypoints=web"
+
+  loomio-worker:
+    restart: unless-stopped
+    image: loomio/loomio:stable
+    environment:
+      - DATABASE_URL=postgresql://postgres:${LOOMIO_DB_PASS}@loomio-db/loomio_production
+      - TASK=worker
+    volumes:
+      - ./data/loomio/app/client:/loomio/public/client
+      - ./data/loomio/app/uploads:/loomio/public/system
+      - ./data/loomio/app/files:/loomio/public/files
+      - ./data/loomio/app/plugins:/loomio/plugins/docker
+      - ./data/loomio/app/storage:/loomio/storage
+
+  loomio-db:
+    restart: unless-stopped
+    image: postgres:9.6
+    volumes:
+      - ./data/loomio/db/pgdata:/pgdata
+      - ./data/loomio/db/pgdumps:/pgdumps
+    environment:
+      - PGDATA=/pgdata
+      - POSTGRES_PASSWORD=${LOOMIO_DB_PASS}
+      - POSTGRES_DB=loomio_production
+
+  loomio-redis:
+    restart: unless-stopped
+    image: redis:5.0
